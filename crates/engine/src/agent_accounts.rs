@@ -33,6 +33,10 @@
 //! the default list stays offline-fast and deterministic; the UI passes
 //! `forceUsage` on page mount/refresh. Cached results (60s TTL) are served to
 //! non-forced lists in between.
+//!
+//! `activeOnly` further limits the probe to the live login. Hitting
+//! `/api/oauth/usage` (or refreshing a parked slot to do it) is a real
+//! authenticated request and can open that account's 5-hour window.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -217,9 +221,6 @@ struct Inner {
     flows: Mutex<HashMap<String, LoginFlow>>,
     /// `"{harness}:{accountKey}"` → cached usage windows.
     usage_cache: Mutex<HashMap<String, CachedUsage>>,
-    /// Slots with a token refresh in flight — a second refresh of the same
-    /// (commonly single-use) refresh token would revoke the family.
-    inflight_refreshes: Mutex<std::collections::HashSet<String>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -255,7 +256,6 @@ impl AgentAccounts {
                 http,
                 flows: Mutex::new(HashMap::new()),
                 usage_cache: Mutex::new(HashMap::new()),
-                inflight_refreshes: Mutex::new(std::collections::HashSet::new()),
             }),
         }
     }
@@ -263,10 +263,15 @@ impl AgentAccounts {
     // ── list ────────────────────────────────────────────────────────────────
 
     /// Detect both CLIs, auto-snapshot the live logins, and assemble the view.
-    pub async fn list(&self, force_usage: bool) -> Result<AgentAccountsSnapshot, EngineError> {
-        if force_usage {
-            lock(&self.inner.usage_cache).clear();
-        }
+    ///
+    /// `active_only` narrows the usage probe to the live login. Every probe is
+    /// a real authenticated request against the account it names, so a caller
+    /// that only renders meters must not spend the saved accounts' quota.
+    pub async fn list(
+        &self,
+        force_usage: bool,
+        active_only: bool,
+    ) -> Result<AgentAccountsSnapshot, EngineError> {
         let mut warnings: Vec<AgentAccountWarning> = Vec::new();
         let mut active_keys: HashMap<HarnessId, String> = HashMap::new();
         let mut unreadable: HashMap<HarnessId, Detected> = HashMap::new();
@@ -312,7 +317,8 @@ impl AgentAccounts {
             let slots = self.read_slots(harness);
             for slot in &slots {
                 let active = active_key.as_deref() == Some(slot.account_key.as_str());
-                let usage = self.usage_for(harness, slot, active, force_usage).await;
+                let probe = force_usage && (active || !active_only);
+                let usage = self.usage_for(harness, slot, probe).await;
                 accounts.push(AgentAccount {
                     id: slot.id.clone(),
                     harness,
@@ -360,7 +366,7 @@ impl AgentAccounts {
         harness: HarnessId,
         account_id: &str,
     ) -> Result<AgentAccountsSnapshot, EngineError> {
-        self.list(false).await?;
+        self.list(false, false).await?;
         let slot = self
             .read_slots(harness)
             .into_iter()
@@ -380,7 +386,7 @@ impl AgentAccounts {
                 )));
             }
         }
-        self.list(false).await
+        self.list(false, false).await
     }
 
     async fn activate_claude(&self, slot: &Slot) -> Result<(), EngineError> {
@@ -457,7 +463,7 @@ impl AgentAccounts {
         {
             return Err(EngineError::Other("Unknown account.".into()));
         }
-        let snapshot = self.list(false).await?;
+        let snapshot = self.list(false, false).await?;
         let active = snapshot
             .accounts
             .iter()
@@ -473,7 +479,7 @@ impl AgentAccounts {
         if file.exists() {
             std::fs::remove_file(&file)?;
         }
-        self.list(false).await
+        self.list(false, false).await
     }
 
     // ── add-account OAuth flows ─────────────────────────────────────────────
@@ -805,7 +811,7 @@ impl AgentAccounts {
             created_at: None,
         })?;
         lock(&self.inner.flows).remove(login_id);
-        self.list(false).await
+        self.list(false, false).await
     }
 
     pub async fn poll_login(&self, login_id: &str) -> Result<AgentLoginPoll, EngineError> {
@@ -1125,11 +1131,16 @@ impl AgentAccounts {
         &self,
         harness: HarnessId,
         slot: &Slot,
-        is_active: bool,
         force: bool,
     ) -> Option<Vec<AgentUsageWindow>> {
         let key = format!("{}:{}", harness_slug(harness), slot.account_key);
-        if let Some((usage, at)) = lock(&self.inner.usage_cache).get(&key)
+        // `force` skips THIS slot's cached value; it does not clear the map.
+        // Clearing was the old way to make Refresh mean refresh, but it threw
+        // away every other account's entry to renew one — and simply dropping
+        // the clear would have made Refresh a no-op inside the TTL, because
+        // this read happens before `force` is ever consulted.
+        if !force
+            && let Some((usage, at)) = lock(&self.inner.usage_cache).get(&key)
             && at.elapsed() < USAGE_TTL
         {
             return usage.clone();
@@ -1139,7 +1150,7 @@ impl AgentAccounts {
             return None;
         }
         let usage = match harness {
-            HarnessId::ClaudeCode => self.claude_usage(slot, is_active).await,
+            HarnessId::ClaudeCode => self.claude_usage(slot).await,
             HarnessId::Codex => self.codex_usage(slot).await,
             _ => None,
         };
@@ -1147,19 +1158,17 @@ impl AgentAccounts {
         usage
     }
 
-    async fn claude_usage(&self, slot: &Slot, is_active: bool) -> Option<Vec<AgentUsageWindow>> {
+    async fn claude_usage(&self, slot: &Slot) -> Option<Vec<AgentUsageWindow>> {
         let oauth = slot.credentials.get("claudeAiOauth")?;
-        let mut access_token = str_field(oauth, "accessToken")?;
+        let access_token = str_field(oauth, "accessToken")?;
         let expires_at = oauth.get("expiresAt").and_then(|v| v.as_i64());
         if let Some(expires_at) = expires_at
             && expires_at < now_ms() + 30_000
         {
-            if is_active {
-                // The CLI owns this token pair — rotating its refresh token out
-                // from under a running Claude Code could force a re-login.
-                return None;
-            }
-            access_token = self.refresh_claude_slot(slot).await?;
+            // Do not refresh here. Rotating a parked account's token and
+            // GETting /oauth/usage is enough for Anthropic to open that
+            // account's 5-hour window. The live CLI owns the active pair.
+            return None;
         }
         let body: serde_json::Value = self
             .inner
@@ -1231,64 +1240,6 @@ impl AgentAccounts {
         (!windows.is_empty()).then_some(windows)
     }
 
-    /// Refresh a saved Claude slot's expired access token so its usage stays
-    /// queryable. NEVER called for the active login. Single-flight per slot:
-    /// OAuth refresh tokens are commonly single-use, and a concurrent second
-    /// POST of the same one would revoke the family and brick the slot.
-    async fn refresh_claude_slot(&self, slot: &Slot) -> Option<String> {
-        if !lock(&self.inner.inflight_refreshes).insert(slot.id.clone()) {
-            return None;
-        }
-        let result = self.refresh_claude_slot_once(slot).await;
-        lock(&self.inner.inflight_refreshes).remove(&slot.id);
-        result
-    }
-
-    async fn refresh_claude_slot_once(&self, slot: &Slot) -> Option<String> {
-        let oauth = slot.credentials.get("claudeAiOauth")?.clone();
-        let refresh_token = str_field(&oauth, "refreshToken")?;
-        let body: serde_json::Value = self
-            .inner
-            .http
-            .post(CLAUDE_TOKEN_URL)
-            .json(&serde_json::json!({
-                "grant_type": "refresh_token",
-                "refresh_token": refresh_token,
-                "client_id": CLAUDE_CLIENT_ID,
-            }))
-            .send()
-            .await
-            .ok()?
-            .error_for_status()
-            .ok()?
-            .json()
-            .await
-            .ok()?;
-        let access_token = str_field(&body, "access_token")?;
-        let expires_in = body
-            .get("expires_in")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(3600);
-        let mut updated = oauth;
-        if let Some(map) = updated.as_object_mut() {
-            map.insert("accessToken".into(), serde_json::json!(access_token));
-            map.insert(
-                "refreshToken".into(),
-                serde_json::json!(str_field(&body, "refresh_token").unwrap_or(refresh_token)),
-            );
-            map.insert(
-                "expiresAt".into(),
-                serde_json::json!(now_ms() + expires_in * 1000),
-            );
-        }
-        let mut refreshed = slot.clone();
-        refreshed.credentials = serde_json::json!({ "claudeAiOauth": updated });
-        refreshed.saved_at = now_ms();
-        if let Err(err) = self.write_slot(&refreshed) {
-            tracing::warn!(slot = %slot.id, error = %err, "refreshed slot write failed");
-        }
-        Some(access_token)
-    }
 }
 
 // ── macOS Keychain (documented here; compiled only on macOS) ────────────────
@@ -1754,6 +1705,82 @@ fn has_access_token(credentials: &serde_json::Value) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn accounts(root: &std::path::Path) -> AgentAccounts {
+        AgentAccounts::new(AgentAccountsConfig {
+            data_dir: root.join("data"),
+            claude_config_dir: root.join("claude"),
+            claude_config_file: root.join("claude.json"),
+            codex_home: root.join("codex"),
+            cursor_sdk_auth_file: root.join("cursor-sdk").join("auth.json"),
+        })
+    }
+
+    fn slot(key: &str) -> Slot {
+        Slot {
+            id: key.to_string(),
+            harness: HarnessId::ClaudeCode,
+            account_key: key.to_string(),
+            profile: SlotProfile {
+                email: format!("{key}@example.com"),
+                display_name: None,
+                organization: None,
+                plan: None,
+                auth_kind: AgentAuthKind::Oauth,
+            },
+            // Kimlik YOK: zorlamalı okuma ağa gitmeye kalksa bile burada
+            // duruyor, dolayısıyla test ağdan bağımsız.
+            credentials: serde_json::json!({}),
+            claude_config: None,
+            saved_at: 0,
+            created_at: None,
+        }
+    }
+
+    /// `force` önbelleği ATLAMALI — ve yalnızca kendi slotununkini.
+    ///
+    /// Bir ara bunu tüm haritayı silerek yapıyorduk: bir hesabı tazelemek
+    /// için ötekilerin ölçümünü çöpe atıyordu. Silmeyi kaldırmak ise
+    /// yenilemeyi tümüyle işlevsiz bırakıyor, çünkü önbellek okuması
+    /// `force`'a BAKILMADAN önce dönüyor — düğme 60 saniye boyunca bayat
+    /// sayıyı gösteriyordu.
+    #[tokio::test]
+    async fn zorlama_onbellegi_atliyor_ama_otekileri_korumaya_devam_ediyor() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let accounts = accounts(tmp.path());
+        let mine = format!("{}:{}", harness_slug(HarnessId::ClaudeCode), "benim");
+        let other = format!("{}:{}", harness_slug(HarnessId::ClaudeCode), "oteki");
+
+        let cached = Some(vec![AgentUsageWindow {
+            label: "Session".into(),
+            used_fraction: 0.5,
+            resets_at: None,
+        }]);
+        {
+            let mut cache = lock(&accounts.inner.usage_cache);
+            cache.insert(mine.clone(), (cached.clone(), Instant::now()));
+            cache.insert(other.clone(), (cached.clone(), Instant::now()));
+        }
+
+        // Zorlamasız okuma önbellekten geliyor: ağa hiç gidilmiyor.
+        assert_eq!(
+            accounts.usage_for(HarnessId::ClaudeCode, &slot("benim"), false).await,
+            cached
+        );
+
+        // Zorlamalı okuma önbelleği atlıyor. Slotta kimlik yok, dolayısıyla
+        // sonda `None` var — önemli olan CEVABIN önbellekten gelmemesi.
+        assert_eq!(
+            accounts.usage_for(HarnessId::ClaudeCode, &slot("benim"), true).await,
+            None
+        );
+
+        // Ötekinin girdisi yerinde: bir hesabı tazelemek diğerini silmemeli.
+        assert_eq!(
+            lock(&accounts.inner.usage_cache).get(&other).and_then(|(u, _)| u.clone()),
+            cached
+        );
+    }
 
     /// Boş ya da bozuk bir canlı jeton dosyası saklanmış slotu ezmemeli.
     ///
