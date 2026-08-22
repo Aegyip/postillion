@@ -223,9 +223,11 @@ pub async fn get_messages(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
+    // Görünüm biçimi: araç etiketleri uygulamanın kullandığı fonksiyondan
+    // geliyor, panel kendi eşlemesini yazmıyor.
     Ok(axum::Json(serde_json::json!({
         "headSeq": state.head_seq,
-        "messages": entries,
+        "messages": crate::transcript_view::render(&entries),
     }))
     .into_response())
 }

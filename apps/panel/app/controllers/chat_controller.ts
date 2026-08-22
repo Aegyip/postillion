@@ -2,8 +2,31 @@ import type { HttpContext } from '@adonisjs/core/http'
 import db from '@adonisjs/lucid/services/db'
 import { presence, transcript } from '#services/sync_server'
 import { chats, sidebar } from '#services/registry'
+import type { Chat } from '#services/registry'
+import { contextLevel, contextPercent, formatContext } from '#services/context_window'
 import { RelayError, sendPrompt } from '#services/device_rpc'
 import vine from '@vinejs/vine'
+
+/**
+ * Bağlam ölçerinin şablona hazır değerleri.
+ *
+ * Hesap Edge'de değil burada: şablonda yapmak aynı kuralı üçüncü kez yazmak
+ * olurdu (ilki Rust, ikincisi `#services/context_window`).
+ */
+function meter(chat: Chat | undefined) {
+  const tokens = chat?.contextTokens ?? null
+  if (tokens === null) {
+    // Ölçüm YOK ile "bağlam boş" ayrı: ilkinde ölçer hiç çizilmemeli.
+    return { contextTokens: null, contextPercent: null, contextLabel: '', contextLevel: '' }
+  }
+  const percent = contextPercent(tokens, chat!.contextWindow)
+  return {
+    contextTokens: tokens,
+    contextPercent: percent,
+    contextLabel: formatContext(tokens),
+    contextLevel: contextLevel(percent),
+  }
+}
 
 const sendValidator = vine.compile(
   vine.object({
@@ -40,6 +63,7 @@ export default class ChatController {
       ...shell,
       chat,
       messages,
+      ...meter(chat),
       // `null` ile boş sohbeti ayırmak gerekiyor: ilki arıza, ikincisi
       // normal durum ve arayüzde farklı görünmeliler.
       unreachable: loaded === null,
@@ -54,7 +78,7 @@ export default class ChatController {
    * verilmesi gerekirdi ve o jeton kullanıcının bütün odalarına açılıyor.
    * Panel kendi jetonuyla soruyor ve sahipliği kendisi denetliyor.
    */
-  async messages({ params, request, response, auth }: HttpContext) {
+  async messages({ params, request, response, auth, view }: HttpContext) {
     const user = auth.getUserOrFail()
     if (!(await this.owns(user.id, params.id))) {
       return response.notFound({ error: 'Chat not found' })
@@ -68,7 +92,17 @@ export default class ChatController {
     if (!loaded) {
       return response.serviceUnavailable({ error: 'The server could not be reached' })
     }
-    return response.json(loaded)
+
+    // Cevap JSON değil HTML: transkriptin TEK bir çizicisi olsun diye.
+    // Tarayıcı kendi çizicisini taşıdığında aynı veriyi sayfadan farklı
+    // gösterebiliyordu ve iki çizici sessizce ayrı düşüyordu.
+    return response.json({
+      headSeq: loaded.headSeq,
+      html:
+        loaded.messages === null
+          ? null
+          : await view.render('partials/transcript', { messages: loaded.messages }),
+    })
   }
 
   /**

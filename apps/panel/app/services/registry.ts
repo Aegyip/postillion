@@ -1,4 +1,5 @@
 import db from '@adonisjs/lucid/services/db'
+import { contextWindow } from '#services/context_window'
 
 /**
  * Kayıt satırlarını okur — cihaz ve sohbet listesi.
@@ -35,6 +36,22 @@ export interface Chat {
   location: string
   /** Sohbeti tutan cihaz şu an açık mı — yazma bu şarta bağlı. */
   deviceOnline: boolean
+  /** Sohbetin ajanı, modeli ve akıl yürütme seviyesi — uygulamanın footer'ı. */
+  harness: string | null
+  model: string | null
+  reasoning: string | null
+  /** Son turun ödediği bağlam; ölçülmediyse `null` (sıfır DEĞİL). */
+  contextTokens: number | null
+  /** Modelin penceresi — ölçerin paydası. */
+  contextWindow: number
+  /** Ajan şu anda çalışıyor mu. */
+  running: boolean
+}
+
+/** Bir sohbetin canlı çalışma satırı (`sessions`). */
+interface SessionRow {
+  status: string | null
+  contextTokens: number | null
 }
 
 /** Kullanıcının sahiplendiği kayıt odaları. */
@@ -136,13 +153,31 @@ function toDevices(rows: Row[], online: Set<string>): Device[] {
   )
 }
 
-function toChats(rows: Row[], online: Set<string>): Chat[] {
+/** `sessions` satırlarını sohbet kimliğine göre indeksler. */
+function toSessions(rows: Row[]): Map<string, SessionRow> {
+  const out = new Map<string, SessionRow>()
+  for (const row of rows) {
+    const tokens = ms(row.fields, 'contextTokens')
+    out.set(str(row.fields, 'chatId') ?? row.id, {
+      status: str(row.fields, 'status'),
+      contextTokens: tokens,
+    })
+  }
+  return out
+}
+
+function toChats(rows: Row[], online: Set<string>, sessions: Map<string, SessionRow>): Chat[] {
   return rows
     .filter((row) => row.fields.archived !== true)
     .map((row) => {
       const deviceId = str(row.fields, 'deviceId')
       const cwd = str(row.fields, 'cwd')
       const branch = str(row.fields, 'branch')
+      // `config` sohbetle birlikte yaşıyor: ajan, model ve akıl yürütme
+      // seviyesi burada. Uygulamanın composer footer'ının gösterdiği şey.
+      const config = (row.fields.config ?? {}) as Record<string, unknown>
+      const model = typeof config.model === 'string' ? config.model : null
+      const session = sessions.get(row.id)
       return {
         id: row.id,
         title: str(row.fields, 'title') ?? 'Untitled',
@@ -152,6 +187,17 @@ function toChats(rows: Row[], online: Set<string>): Chat[] {
         location: [cwd, branch].filter(Boolean).join(' · '),
         lastMessageAt: ms(row.fields, 'lastMessageAt'),
         deviceOnline: deviceId !== null && online.has(deviceId),
+        harness: typeof config.harness === 'string' ? config.harness : null,
+        model,
+        reasoning: typeof config.reasoning === 'string' ? config.reasoning : null,
+        contextTokens: session?.contextTokens ?? null,
+        contextWindow: contextWindow(
+          model,
+          (config.modelOptions ?? null) as Record<string, unknown> | null
+        ),
+        // Cihaz kapalıyken "çalışıyor" DEMİYORUZ: satır son bilinen durumu
+        // taşıyor ve çöken bir host onu sonsuza kadar "running" bırakabilir.
+        running: session?.status === 'running' && deviceId !== null && online.has(deviceId),
       }
     })
     .sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0))
@@ -166,8 +212,15 @@ export async function devices(
 }
 
 export async function chats(userId: number, presence: PresenceFetcher): Promise<Workspace<Chat>> {
-  const [rows, online] = await Promise.all([rowsOf(userId, 'chats'), onlineIds(userId, presence)])
-  return { items: toChats(rows, online.ids), livenessKnown: online.known }
+  const [rows, sessionRows, online] = await Promise.all([
+    rowsOf(userId, 'chats'),
+    rowsOf(userId, 'sessions'),
+    onlineIds(userId, presence),
+  ])
+  return {
+    items: toChats(rows, online.ids, toSessions(sessionRows)),
+    livenessKnown: online.known,
+  }
 }
 
 /**
@@ -179,14 +232,15 @@ export async function chats(userId: number, presence: PresenceFetcher): Promise<
  * içerikteki durum birbirini tutmazdı.
  */
 export async function sidebar(userId: number, presence: PresenceFetcher) {
-  const [deviceRows, chatRows, online] = await Promise.all([
+  const [deviceRows, chatRows, sessionRows, online] = await Promise.all([
     rowsOf(userId, 'devices'),
     rowsOf(userId, 'chats'),
+    rowsOf(userId, 'sessions'),
     onlineIds(userId, presence),
   ])
   return {
     devices: toDevices(deviceRows, online.ids),
-    chats: toChats(chatRows, online.ids),
+    chats: toChats(chatRows, online.ids, toSessions(sessionRows)),
     livenessKnown: online.known,
   }
 }

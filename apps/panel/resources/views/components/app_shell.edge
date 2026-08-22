@@ -45,7 +45,9 @@
               <li class="{{ chat.id === activeChatId ? 'is-active' : '' }}">
                 <a href="/app/chats/{{ chat.id }}">
                   <span class="nm">{{ chat.title }}</span>
-                  <span class="sub">{{ chat.location || '—' }}</span>
+                  <span class="sub {{ chat.running ? 'running' : '' }}">
+                    {{ chat.running ? 'working…' : (chat.location || '—') }}
+                  </span>
                 </a>
               </li>
             @end

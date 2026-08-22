@@ -1,0 +1,107 @@
+{{--
+  Transkript. TEK çizici: sayfa da canlı yoklama da bunu kullanıyor.
+
+  Önce iki taraf ayrıydı — sunucu Edge ile, tarayıcı JavaScript ile çiziyordu
+  ve ikisi aynı veriyi farklı gösteriyordu. Bu projede aynı hata iki kez
+  üretime çıktı (captcha alan adı, canlılık yoklaması): bir anlaşmanın iki
+  yarısı sessizce ayrı düşüyor. Yoklama artık JSON değil bu parçanın HTML'ini
+  alıyor.
+
+  Etiketler (`Run`, `Read`, `Todo`, `Agent`…) sunucudan geliyor ve
+  uygulamanın çağırdığı fonksiyonla üretiliyor — bkz.
+  `crates/server/src/transcript_view.rs`.
+--}}
+<ol class="transcript">
+  @each (message in messages)
+    <li class="msg {{ message.role }}">
+      <span class="who">{{ message.role === 'user' ? 'You' : 'Agent' }}</span>
+      @each (part in message.parts)
+        @if (part.kind === 'text')
+          <p class="text">{{ part.text }}</p>
+
+        @elseif (part.kind === 'error')
+          <p class="part-error">{{ part.message }}</p>
+
+        {{-- Ajanın kullanıcıya sorduğu soru. Panelde hiç görünmüyordu:
+             kullanıcı kendisinden cevap beklendiğini fark edemiyordu. --}}
+        @elseif (part.kind === 'input')
+          @each (question in part.questions)
+            <div class="ask {{ part.resolved ? 'is-done' : '' }}">
+              <p class="ask-head">
+                {{ question.header }}
+                @if (!part.resolved)
+                  <span class="ask-flag">awaiting an answer</span>
+                @end
+              </p>
+              <p class="ask-q">{{ question.question }}</p>
+              @if (question.options && question.options.length)
+                <ul class="ask-options">
+                  @each (option in question.options)
+                    <li>{{ option }}</li>
+                  @end
+                </ul>
+              @end
+              {{-- Cevap ARAYÜZÜ yok: seçim cihazdaki ajana gidiyor ve o yol
+                   henüz açık değil. Soruyu göstermek yine de gerekli —
+                   kullanıcı en azından beklendiğini biliyor. --}}
+              @if (!part.resolved)
+                <p class="ask-hint">Answer on the device running this chat.</p>
+              @end
+            </div>
+          @end
+
+        @elseif (part.kind === 'tool')
+          <div class="tool {{ part.isError ? 'is-error' : '' }}">
+            <p class="tool-head">
+              <span class="tool-label">{{ part.label }}</span>
+              <span class="tool-detail">{{ part.detail }}</span>
+              @if (!part.resolved)
+                <span class="pending">running</span>
+              @end
+            </p>
+
+            {{-- Görev listesi: çipin ayrıntısı yalnızca "1/2 done" diyor. --}}
+            @if (part.todo && part.todo.length)
+              <ul class="todo">
+                @each (item in part.todo)
+                  <li class="{{ item.done ? 'is-done' : '' }}">
+                    <span class="box">{{ item.done ? '✓' : '' }}</span>{{ item.text }}
+                  </li>
+                @end
+              </ul>
+            @end
+
+            @if (part.diffStats && part.diffStats.length)
+              <ul class="diffs">
+                @each (stat in part.diffStats)
+                  <li>
+                    <span class="path">{{ stat.path }}</span>
+                    <span class="add">+{{ stat.additions }}</span>
+                    <span class="del">−{{ stat.deletions }}</span>
+                  </li>
+                @end
+              </ul>
+            @end
+
+            {{-- Edge tag'leri kendi SATIRLARINDA olmak zorunda: satır içi
+                 `@if` işlenmiyor ve şablonun kendisi düz metin olarak
+                 çıktıya düşüyor. --}}
+            @if (part.subagent)
+              <p class="subagent {{ part.subagent.status }}">
+                @if (part.subagent.tail)
+                  {{ part.subagent.status }} · {{ part.subagent.tail }}
+                @else
+                  {{ part.subagent.status }}
+                @end
+              </p>
+            @end
+
+            @if (part.output)
+              <pre class="tool-output">{{ part.output }}</pre>
+            @end
+          </div>
+        @end
+      @end
+    </li>
+  @end
+</ol>

@@ -24,6 +24,7 @@ pub mod ownership;
 pub mod presence;
 pub mod rooms;
 pub mod transcript;
+pub mod transcript_view;
 
 use std::sync::Arc;
 

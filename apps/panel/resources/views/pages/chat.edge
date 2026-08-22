@@ -19,27 +19,7 @@
         <p class="empty">No messages in this chat yet.</p>
       </div>
     @else
-      <ol class="transcript">
-        @each (message in messages)
-          <li class="msg {{ message.role }}">
-            <span class="who">{{ message.role === 'user' ? 'You' : 'Agent' }}</span>
-            @each (part in message.parts)
-              @if (part.kind === 'text')
-                <p class="text">{{ part.text }}</p>
-              @elseif (part.kind === 'error')
-                <p class="part-error">{{ part.message }}</p>
-              @elseif (part.kind === 'tool')
-                <p class="tool">
-                  {{ part.call && part.call.command ? part.call.command : (part.call && part.call.path ? part.call.path : 'tool') }}
-                  @if (!part.resolved)
-                    <span class="pending">running</span>
-                  @end
-                </p>
-              @end
-            @end
-          </li>
-        @end
-      </ol>
+      @include('partials/transcript')
     @end
   </div>
 
@@ -74,10 +54,35 @@
     @end
   </div>
 
+  {{-- Uygulamanın composer footer'ı: ajan · model · seviye, sağda bağlam
+       ölçeri. Buradakiler OKUNUYOR, seçilmiyor — seçim cihazdaki motora bir
+       RPC gerektiriyor ve o yol henüz açık değil. --}}
   <div class="statusbar">
-    <span>{{ chat && chat.cwd ? chat.cwd : 'no checkout' }}</span>
-    @if (chat && chat.branch)
-      <span class="right">{{ chat.branch }}</span>
+    @if (chat && chat.harness)
+      <span class="chip">{{ chat.harness }}</span>
     @end
+    @if (chat && chat.model)
+      <span class="chip">{{ chat.model }}</span>
+    @end
+    @if (chat && chat.reasoning)
+      <span class="chip">{{ chat.reasoning }}</span>
+    @end
+    @if (chat && chat.running)
+      <span class="chip working">working</span>
+    @end
+
+    <span class="right">
+      @if (contextPercent !== null)
+        {{-- Çıplak bir "232k" pencerenin neresinde olunduğunu söylemiyor;
+             asıl sorulan bu. --}}
+        <span class="meter {{ contextLevel }}" title="{{ contextTokens }} tokens">
+          <span class="meter-bar"><span style="width: {{ contextPercent }}%"></span></span>
+          {{ contextLabel }} · %{{ contextPercent }}
+        </span>
+      @end
+      @if (chat && chat.branch)
+        <span class="branch">{{ chat.branch }}</span>
+      @end
+    </span>
   </div>
 @end

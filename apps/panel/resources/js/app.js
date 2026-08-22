@@ -7,21 +7,21 @@
  *
  * Yoklama ucuz: panel elindeki baş sırayı gönderiyor, değişmemişse sunucu
  * belgeyi hiç kurmuyor ve `unchanged` dönüyor.
+ *
+ * Gelen şey JSON değil HTML. Burada bir çizici tutmak, aynı veriyi iki
+ * yerde çizmek demekti ve ikisi sessizce ayrı düşerdi — bu depoda tam
+ * olarak o hata iki kez üretime çıktı. Sayfa da yoklama da
+ * `partials/transcript`'i kullanıyor.
  */
 
 const root = document.querySelector('[data-chat-id]')
 
 if (root) {
   const chatId = root.dataset.chatId
-  const list = root.querySelector('.transcript')
+  let headSeq = Number(root.dataset.headSeq || 0)
+  /** Art arda hata sayısı — geri çekilme buna göre. */
+  let failures = 0
 
-  /**
-   * Sohbet en SONDAN açılıyor.
-   *
-   * Uzun bir transkriptin başına düşmek, kullanıcıyı en son ne olduğunu
-   * bulmak için sayfa sonuna kaydırmaya zorlar — masaüstü uygulaması da
-   * altta açılıyor.
-   */
   // Dar ekranda `.scroll` kaydırmıyor — sayfanın kendisi kaydırıyor. Hangisi
   // ise ona yazmak gerekiyor, yoksa telefonda çağrı sessizce hiçbir şey
   // yapmıyor ve sohbet kenar çubuğunun altında, en baştan açılıyor.
@@ -33,14 +33,17 @@ if (root) {
     el.scrollTop = el.scrollHeight
   }
   toBottom()
-  let headSeq = Number(root.dataset.headSeq || 0)
-  /** Art arda hata sayısı — geri çekilme buna göre. */
-  let failures = 0
+  // Yazı tipi `font-display: swap` ile geliyor: geldiğinde satırlar yeniden
+  // akıyor ve transkript uzuyor. Bir kez kaydırmak yetmiyordu — uzun bir
+  // sohbet en sonda değil, ortasında açılıyordu.
+  document.fonts?.ready.then(toBottom)
+  window.addEventListener('load', toBottom, { once: true })
 
-  const render = (messages) => {
+  const render = (html) => {
+    const list = root.querySelector('.transcript')
     if (!list) {
-      // Transkript hiç çizilmemişse (boş sohbet) sayfayı yenilemek en
-      // basiti: ilk mesajla birlikte düzen de değişiyor.
+      // Transkript hiç çizilmemişti (boş sohbet); ilk mesajla birlikte
+      // düzen de değişiyor, sayfayı yenilemek en basiti.
       window.location.reload()
       return
     }
@@ -48,45 +51,7 @@ if (root) {
     // zaten dipteyken takip ediyoruz.
     const el = scroller()
     const wasAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40
-    list.replaceChildren(
-      ...messages.map((message) => {
-        const li = document.createElement('li')
-        li.className = `msg ${message.role}`
-
-        const who = document.createElement('span')
-        who.className = 'who'
-        who.textContent = message.role === 'user' ? 'You' : 'Agent'
-        li.append(who)
-
-        for (const part of message.parts ?? []) {
-          if (part.kind === 'text') {
-            const p = document.createElement('p')
-            p.className = 'text'
-            // `textContent`: sohbet içeriği kullanıcı metni ve HTML olarak
-            // yorumlanmamalı.
-            p.textContent = part.text ?? ''
-            li.append(p)
-          } else if (part.kind === 'error') {
-            const p = document.createElement('p')
-            p.className = 'part-error'
-            p.textContent = part.message ?? ''
-            li.append(p)
-          } else if (part.kind === 'tool') {
-            const p = document.createElement('p')
-            p.className = 'tool'
-            p.textContent = part.call?.command ?? part.call?.path ?? 'tool'
-            if (!part.resolved) {
-              const pending = document.createElement('span')
-              pending.className = 'pending'
-              pending.textContent = 'running'
-              p.append(' ', pending)
-            }
-            li.append(p)
-          }
-        }
-        return li
-      })
-    )
+    list.outerHTML = html
     if (wasAtBottom) {
       toBottom()
     }
@@ -94,17 +59,18 @@ if (root) {
 
   const poll = async () => {
     try {
-      const response = await fetch(`/app/chats/${encodeURIComponent(chatId)}/messages?since=${headSeq}`, {
-        headers: { accept: 'application/json' },
-      })
+      const response = await fetch(
+        `/app/chats/${encodeURIComponent(chatId)}/messages?since=${headSeq}`,
+        { headers: { accept: 'application/json' } }
+      )
       if (!response.ok) {
         throw new Error(String(response.status))
       }
       const body = await response.json()
       failures = 0
       headSeq = body.headSeq ?? headSeq
-      if (body.messages) {
-        render(body.messages)
+      if (body.html) {
+        render(body.html)
       }
     } catch {
       // Sessizce geri çekiliyoruz: geçici bir arıza için ekrana hata basmak,

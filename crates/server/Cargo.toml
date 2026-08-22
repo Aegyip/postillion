@@ -17,6 +17,9 @@ postillion-sync.workspace = true
 postillion-doc.workspace = true
 # Cihaz rölesinin çerçeve codec'i — istemcinin kullandığının aynısı.
 postillion-rpc.workspace = true
+# Araç çipi etiketleri (`view::tool_chip_content`) — panelin transkripti
+# uygulamayla AYNI sözcükleri göstermeli, ikinci bir kopya yazılmamalı.
+postillion-proto.workspace = true
 # Sohbet içeriğini sunucuda materyalize etmek için (panel, bilgisayar kapalıyken
 # de transkripti göstermeli).
 loro.workspace = true
