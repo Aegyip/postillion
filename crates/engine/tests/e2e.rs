@@ -219,6 +219,19 @@ fn command_status(core: &EngineCore, id: &str) -> Option<(SessionCommandStatus, 
         .map(|c| (c.status, c.resolution))
 }
 
+/// Bir komutun sonucunun yazılmasını bekler — hangi sonuç olduğuna BAKMADAN.
+///
+/// Kesin değeri çağıran doğruluyor. Beklemenin içine eşitlik koymak, yanlış
+/// bir sonucu (örneğin `Rejected`) on saniyelik bir "zaman aşımı" olarak
+/// raporlar ve gerçekte ne olduğunu gizlerdi.
+async fn settled(core: &EngineCore, id: &str) {
+    wait_for(
+        || command_status(core, id).is_some_and(|(s, _)| s != SessionCommandStatus::Pending),
+        "command outcome",
+    )
+    .await;
+}
+
 #[tokio::test]
 async fn queued_run_command_executes_end_to_end() {
     let dir = tempfile::tempdir().unwrap();
@@ -297,6 +310,7 @@ async fn queued_run_command_executes_end_to_end() {
     }
 
     // Command outcome written by the host (sole outcome writer).
+    settled(&core, "cmd-run-1").await;
     assert_eq!(
         command_status(&core, "cmd-run-1"),
         Some((SessionCommandStatus::Applied, None))
@@ -434,17 +448,27 @@ async fn interrupt_stamps_streaming_entry_aborted() {
         MessagePart::Text { text, .. } => assert_eq!(text, "partial output"),
         other => panic!("unexpected part {other:?}"),
     }
+    // The abort stamp and the command's own status are written by DIFFERENT
+    // tasks: `interrupt()` waits for the run to unwind (which stamps the
+    // entry), and the drain marks the command applied after it returns. So
+    // "aborted is visible" does not imply "applied is visible" — asserting it
+    // straight away is a race, and one that only ever lost on Windows CI.
+    settled(&core, "cmd-int-1").await;
     assert_eq!(
         command_status(&core, "cmd-int-1"),
         Some((SessionCommandStatus::Applied, None))
     );
+
+    // Same reason: the session row settles on its own schedule.
+    wait_for(
+        || core.sessions.session_status(CHAT).map(|s| s.status) == Some(SessionStatus::Idle),
+        "session idle",
+    )
+    .await;
+
     // Journal closed with a Done — nothing left to recover.
     let journal = RunJournal::open(dir.path().join("orgs/dev-org/dev-user/journals")).unwrap();
     assert!(journal.stale_sessions().unwrap().is_empty());
-    assert_eq!(
-        core.sessions.session_status(CHAT).map(|s| s.status),
-        Some(SessionStatus::Idle)
-    );
 }
 
 #[tokio::test]
@@ -993,6 +1017,7 @@ async fn respond_input_resolves_pending_question() {
         "answered turn to complete",
     )
     .await;
+    settled(&core, "cmd-answer-1").await;
     assert_eq!(
         command_status(&core, "cmd-answer-1"),
         Some((SessionCommandStatus::Applied, None))
@@ -1511,6 +1536,7 @@ async fn harness_emitted_input_twin_is_dropped_and_answer_resumes() {
         "answered turn to complete",
     )
     .await;
+    settled(&core, "cmd-answer-twin").await;
     assert_eq!(
         command_status(&core, "cmd-answer-twin"),
         Some((SessionCommandStatus::Applied, None))
