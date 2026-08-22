@@ -45,6 +45,7 @@ router
     router.get('/', [WorkspaceController, 'index'])
     router.get('/chats/:id', [ChatController, 'show'])
     router.post('/chats/:id/send', [ChatController, 'send'])
+    router.post('/chats/:id/config', [ChatController, 'config'])
     router.get('/chats/:id/messages', [ChatController, 'messages'])
     router.get('/tokens', [TokensController, 'index'])
     router.post('/tokens', [TokensController, 'store'])

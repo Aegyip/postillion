@@ -1,0 +1,15 @@
+{
+  "chatId": "chat-1",
+  "command": {
+    "kind": "run",
+    "request": {
+      "prompt": "sürümü yayınla",
+      "cwd": "/home/u/proje",
+      "sandbox": "workspace-write",
+      "harness": "claude-code",
+      "model": "claude-opus-5",
+      "reasoning": "high"
+    },
+    "messageId": "msg-1"
+  }
+}

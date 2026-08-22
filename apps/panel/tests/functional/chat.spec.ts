@@ -3,6 +3,22 @@ import testUtils from '@adonisjs/core/services/test_utils'
 import db from '@adonisjs/lucid/services/db'
 import User from '#models/user'
 
+/** İki grup da kullanıyor: sahibi olan bir kullanıcı ve ona ait bir sohbet. */
+async function userWithChat(org: string, chatId: string) {
+  const user = await User.create({
+    email: `c${Date.now()}${Math.random()}@example.com`,
+    password: 'cok-uzun-bir-parola',
+  })
+  await db.table('room_owners').insert({ scope: 'registry', room: org, user_id: user.id })
+  await db.table('registry_rows').insert({
+    org,
+    kind: 'chats',
+    id: chatId,
+    fields: JSON.stringify({ title: 'Deneme', deviceId: 'dev-a' }),
+  })
+  return user
+}
+
 /**
  * Sohbet sayfası.
  *
@@ -27,21 +43,6 @@ test.group('Sohbet', (group) => {
       )`)
   })
   group.each.setup(() => testUtils.db().withGlobalTransaction())
-
-  async function userWithChat(org: string, chatId: string) {
-    const user = await User.create({
-      email: `c${Date.now()}${Math.random()}@example.com`,
-      password: 'cok-uzun-bir-parola',
-    })
-    await db.table('room_owners').insert({ scope: 'registry', room: org, user_id: user.id })
-    await db.table('registry_rows').insert({
-      org,
-      kind: 'chats',
-      id: chatId,
-      fields: JSON.stringify({ title: 'Deneme', deviceId: 'dev-a' }),
-    })
-    return user
-  }
 
   test('kendi sohbeti açılıyor', async ({ client }) => {
     const user = await userWithChat('org-c1', 'chat-1')
@@ -150,5 +151,90 @@ test.group('Sohbet', (group) => {
     const user = await userWithChat('org-j2', 'chat-j2')
     const response = await client.get('/app/chats/chat-j2/messages').loginAs(user)
     response.assertStatus(503)
+  })
+})
+
+/**
+ * Model seçimi.
+ *
+ * Liste CİHAZDAN geliyor: hangi modellerin kullanılabilir olduğu oradaki
+ * kuruluma bağlı ve panelde sabit bir tablo yok. Cihaz kapalıyken seçim de
+ * yazma da yapılamıyor.
+ */
+test.group('Model seçimi', (group) => {
+  group.each.setup(() => testUtils.db().withGlobalTransaction())
+
+  test('seçici mevcut modeli işaretliyor', async ({ assert }) => {
+    const ctx = await testUtils.createHttpContext()
+    // `share`, `render` verisi DEĞİL: bunları iç içe bileşenler de çağırıyor
+    // (`app_shell` kendi formunda `csrfField()` kullanıyor) ve sayfa verisi
+    // slot'un içine geçmiyor.
+    ctx.view.share({
+      csrfField: () => '',
+      flashMessages: { has: () => false, get: () => undefined },
+    })
+    const html = await ctx.view.render('pages/chat', {
+      title: 'x',
+      devices: [],
+      chats: [],
+      livenessKnown: true,
+      activeChatId: 'c1',
+      chat: {
+        id: 'c1',
+        title: 'Sohbet',
+        location: '',
+        cwd: null,
+        branch: null,
+        deviceOnline: true,
+        harness: 'claude-code',
+        model: 'claude-opus-5',
+        reasoning: null,
+        running: false,
+      },
+      messages: [],
+      models: [
+        { id: 'claude-opus-5', label: 'Opus 5' },
+        { id: 'claude-sonnet-5', label: 'Sonnet 5' },
+      ],
+      unreachable: false,
+      headSeq: 0,
+      contextTokens: null,
+      contextPercent: null,
+      contextLabel: '',
+      contextLevel: '',
+    })
+
+    assert.include(html, 'name="model"')
+    assert.include(html, 'Sonnet 5')
+    // Seçili olan mevcut model olmalı; olmasaydı seçici sessizce başka bir
+    // modele geçmeyi teklif ederdi.
+    assert.match(html, /value="claude-opus-5"[^>]*selected/)
+  })
+
+  test('cihaz kapalıyken model değiştirilemiyor', async ({ client, assert }) => {
+    const user = await userWithChat('org-cfg', 'chat-cfg')
+    const response = await client
+      .post('/app/chats/chat-cfg/config')
+      .form({ model: 'claude-sonnet-5' })
+      .withCsrfToken()
+      .loginAs(user)
+      .redirects(0)
+
+    response.assertStatus(302)
+    assert.isTrue(true, 'röleye hiç gidilmemeli — cihaz kapalı')
+  })
+
+  test('başkasının sohbetinin modeli değiştirilemiyor', async ({ client }) => {
+    await userWithChat('org-cfg2', 'chat-cfg2')
+    const baskasi = await User.create({
+      email: `b${Date.now()}@example.com`,
+      password: 'cok-uzun-bir-parola',
+    })
+    const response = await client
+      .post('/app/chats/chat-cfg2/config')
+      .form({ model: 'x' })
+      .withCsrfToken()
+      .loginAs(baskasi)
+    response.assertStatus(404)
   })
 })

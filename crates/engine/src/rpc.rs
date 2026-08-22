@@ -2150,4 +2150,39 @@ mod tests {
             None
         );
     }
+
+    /// Panelin gönderdiği `Mutate {op: setChatConfig}` yükü gerçekten
+    /// çözülüyor mu.
+    ///
+    /// `MutateParams` bu modüle ait ve panel TypeScript — yükü elle kuruyor.
+    /// Aynı sınıftaki `QueueCommand` hatası webden mesaj göndermeyi tümüyle
+    /// kırmıştı ("bad params: missing field `kind`"); bu ikinci elle kurulan
+    /// yükü de aynı şekilde bağlıyoruz. Sabit dosyanın panel tarafındaki
+    /// ikizi `apps/panel/tests/functional/queue_command.spec.ts` içinde.
+    #[test]
+    fn panelin_set_chat_config_yuku_cozuluyor() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("depo kökü")
+            .join("apps/panel/tests/fixtures/set_chat_config.json");
+        let raw = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("{} okunamadı: {e}", path.display()));
+
+        let parsed: MutateParams = serde_json::from_str(&raw).unwrap_or_else(|e| {
+            panic!(
+                "\npanelin gönderdiği yapılandırma yükü çözülemiyor: {e}\n\
+                 dosya: {}\n",
+                path.display()
+            )
+        });
+
+        let MutateParams::SetChatConfig { chat_id, config } = parsed else {
+            panic!("yük `setChatConfig` olmalı");
+        };
+        assert_eq!(chat_id, "chat-1");
+        assert_eq!(config.model.as_deref(), Some("claude-sonnet-5"));
+        // Tam değişim: tanınmayan alanlar da taşınmalı, yoksa sessizce silinir.
+        assert_eq!(config.mcp_servers.as_deref(), Some(&["github".to_string()][..]));
+    }
 }

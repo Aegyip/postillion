@@ -4,7 +4,7 @@ import { presence, transcript } from '#services/sync_server'
 import { chats, sidebar } from '#services/registry'
 import type { Chat } from '#services/registry'
 import { contextLevel, contextPercent, formatContext } from '#services/context_window'
-import { RelayError, sendPrompt } from '#services/device_rpc'
+import { RelayError, listModels, sendPrompt, setChatModel } from '#services/device_rpc'
 import vine from '@vinejs/vine'
 
 /**
@@ -59,10 +59,19 @@ export default class ChatController {
     const messages = loaded?.messages ?? null
     const chat = shell.chats.find((c) => c.id === params.id)
 
+    // Model listesi CİHAZDAN geliyor ve yalnızca açıkken sorulabiliyor.
+    // Kapalıyken hata GÖSTERİLMİYOR: seçim zaten yapılamaz ve sayfanın geri
+    // kalanı (transkript) çalışıyor.
+    const models =
+      chat?.deviceOnline && chat.deviceId && chat.harness
+        ? await listModels(chat.deviceId, user.id, chat.harness).catch(() => [])
+        : []
+
     return view.render('pages/chat', {
       ...shell,
       chat,
       messages,
+      models,
       ...meter(chat),
       // `null` ile boş sohbeti ayırmak gerekiyor: ilki arıza, ikincisi
       // normal durum ve arayüzde farklı görünmeliler.
@@ -106,6 +115,43 @@ export default class ChatController {
   }
 
   /**
+   * Sohbetin modelini değiştirir.
+   *
+   * Cihaza yazıyor, panelin veritabanına DEĞİL: yapılandırma kayıt
+   * belgesinde yaşıyor ve oradan bütün cihazlara eşitleniyor. Panelin kendi
+   * kopyasına yazmak, masaüstü uygulamasının hiç görmediği bir seçim
+   * bırakırdı.
+   */
+  async config({ params, request, response, session, auth }: HttpContext) {
+    const user = auth.getUserOrFail()
+    if (!(await this.owns(user.id, params.id))) {
+      return response.notFound('Chat not found')
+    }
+
+    const { items } = await chats(user.id, (org) => presence(org, user.id))
+    const chat = items.find((c) => c.id === params.id)
+    if (!chat?.deviceId || !chat.deviceOnline) {
+      session.flash('errorsBag', { device: "This chat's device is off." })
+      return response.redirect().back()
+    }
+
+    const model = String(request.input('model') ?? '').trim()
+    if (!model) {
+      return response.redirect().back()
+    }
+    const reasoning = String(request.input('reasoning') ?? '').trim() || null
+
+    try {
+      await setChatModel(chat.deviceId, user.id, params.id, chat.config, model, reasoning)
+    } catch (error) {
+      session.flash('errorsBag', {
+        config: error instanceof RelayError ? error.message : 'The model could not be changed.',
+      })
+    }
+    return response.redirect().back()
+  }
+
+  /**
    * Sohbete mesaj yazar.
    *
    * Okumanın aksine bu cihaza BAĞLI: ajan orada çalışıyor. Cihaz kapalıysa
@@ -127,7 +173,12 @@ export default class ChatController {
     }
 
     try {
-      await sendPrompt(chat.deviceId, user.id, params.id, prompt, chat.cwd ?? '')
+      await sendPrompt(chat.deviceId, user.id, params.id, prompt, chat.cwd ?? '', {
+        harness: chat.harness,
+        model: chat.model,
+        reasoning: chat.reasoning,
+        sandbox: chat.sandbox,
+      })
     } catch (error) {
       // Röle hataları kullanıcıya OLDUĞU GİBİ gösteriliyor ("Cihaz
       // çevrimdışı" gibi); genel bir "gönderilemedi" ne yapacağını

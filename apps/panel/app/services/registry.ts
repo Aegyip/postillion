@@ -40,6 +40,15 @@ export interface Chat {
   harness: string | null
   model: string | null
   reasoning: string | null
+  /** Sohbetin izin seviyesi — koşum isteğinde AYNEN geçiyor. */
+  sandbox: string | null
+  /**
+   * Ham yapılandırma.
+   *
+   * `SetChatConfig` tam değişim yapıyor; alanları tek tek kurmak
+   * `mcpServers` gibi tanımadıklarımızı silerdi. Olduğu gibi taşınıyor.
+   */
+  config: Record<string, unknown>
   /** Son turun ödediği bağlam; ölçülmediyse `null` (sıfır DEĞİL). */
   contextTokens: number | null
   /** Modelin penceresi — ölçerin paydası. */
@@ -190,6 +199,8 @@ function toChats(rows: Row[], online: Set<string>, sessions: Map<string, Session
         harness: typeof config.harness === 'string' ? config.harness : null,
         model,
         reasoning: typeof config.reasoning === 'string' ? config.reasoning : null,
+        sandbox: typeof config.sandbox === 'string' ? config.sandbox : null,
+        config,
         contextTokens: session?.contextTokens ?? null,
         contextWindow: contextWindow(
           model,

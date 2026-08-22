@@ -1,0 +1,12 @@
+{
+  "op": "setChatConfig",
+  "chatId": "chat-1",
+  "config": {
+    "harness": "claude-code",
+    "model": "claude-sonnet-5",
+    "reasoning": "high",
+    "modelOptions": {},
+    "sandbox": "workspace-write",
+    "mcpServers": ["github"]
+  }
+}

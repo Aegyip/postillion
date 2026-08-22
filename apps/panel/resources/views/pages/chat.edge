@@ -61,9 +61,24 @@
     @if (chat && chat.harness)
       <span class="chip">{{ chat.harness }}</span>
     @end
-    @if (chat && chat.model)
+
+    {{-- Model listesi cihazdan geliyor; kapalıyken seçim de yazma da
+         yapılamıyor, o yüzden seçici yerine sabit etiket duruyor. --}}
+    @if (models.length)
+      <form class="pick" method="POST" action="/app/chats/{{ chat.id }}/config">
+        {{ csrfField() }}
+        <select name="model" onchange="this.form.requestSubmit()">
+          @each (model in models)
+            <option value="{{ model.id }}" {{ model.id === chat.model ? 'selected' : '' }}>
+              {{ model.label }}
+            </option>
+          @end
+        </select>
+      </form>
+    @elseif (chat && chat.model)
       <span class="chip">{{ chat.model }}</span>
     @end
+
     @if (chat && chat.reasoning)
       <span class="chip">{{ chat.reasoning }}</span>
     @end
