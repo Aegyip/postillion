@@ -185,6 +185,19 @@ fn turkish(source: &str) -> Option<&'static str> {
             "Bağlı her sunucunun araç tanımları her turda taşınıyor."
         }
         "Context window" => "Bağlam penceresi",
+
+        // Composer'daki kullanım göstergesi.
+        "Usage" => "Kullanım",
+        "Plan usage limits" => "Plan kullanım sınırları",
+        "5-hour limit" => "5 saatlik sınır",
+        "Weekly · all models" => "Haftalık · tüm modeller",
+        "Resets now" => "Şimdi sıfırlanıyor",
+        "Resets in" => "Sıfırlanmasına",
+        "Resets" => "Sıfırlanma",
+        // Süre birimleri ayrı anahtar: cümlenin içine gömülü bırakmak
+        // "Sıfırlanmasına 3 hr 20 min" veriyordu.
+        "hr" => "sa",
+        "min" => "dk",
         "Context Window" => "Bağlam Penceresi",
 
         // ── model / özellikler
