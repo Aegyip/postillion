@@ -18,6 +18,15 @@ cargo build --release -p postillion
 ./target/release/postillion status
 ```
 
+While iterating, `--profile fast` gives release-quality code without
+release's link cost — thin LTO relinks the whole program for a one-line
+edit, which is the right trade when shipping and the wrong one in a
+build-run-tweak loop.
+
+```bash
+cargo build --profile fast -p postillion
+```
+
 Day-to-day:
 
 ```bash
