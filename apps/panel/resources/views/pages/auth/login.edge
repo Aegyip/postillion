@@ -1,5 +1,5 @@
-@component('components/layout', { title: 'Log in — Postillion', captchaScript: true })
-  <form class="card" method="POST" action="/login">
+@component('components/auth_shell', { title: 'Log in — Postillion', captchaScript: true })
+  <form class="auth-card" method="POST" action="/login">
     {{ csrfField() }}
     <h1>Log in</h1>
     <p class="sub">Continue with your Postillion account.</p>
@@ -41,7 +41,7 @@
            data-response-field-name="token"></div>
     @end
 
-    <button class="btn" type="submit">Log in</button>
+    <button class="btn wide" type="submit">Log in</button>
     <p class="alt">No account yet? <a href="/register">Sign up</a></p>
   </form>
 @end

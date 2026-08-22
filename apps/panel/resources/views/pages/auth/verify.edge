@@ -1,5 +1,5 @@
-@component('components/layout', { title: 'Verify your e-mail — Postillion' })
-  <div class="card">
+@component('components/auth_shell', { title: 'Verify your e-mail — Postillion' })
+  <div class="auth-card">
     <h1>Verify your e-mail</h1>
     <p class="sub">
       We sent a verification link to <strong>{{ email }}</strong>.
@@ -23,7 +23,7 @@
       <form method="POST" action="/verify/resend">
         {{ csrfField() }}
         {{-- Devre dışı buton yalnızca görünüş: gerçek engel sunucuda. --}}
-        <button class="btn" type="submit" {{ cooldown > 0 ? 'disabled' : '' }}>
+        <button class="btn wide" type="submit" {{ cooldown > 0 ? 'disabled' : '' }}>
           @if (cooldown > 0)
             Send again in {{ cooldown }}s
           @else

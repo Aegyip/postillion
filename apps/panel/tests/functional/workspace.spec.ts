@@ -1,6 +1,7 @@
 import { test } from '@japa/runner'
 import testUtils from '@adonisjs/core/services/test_utils'
 import db from '@adonisjs/lucid/services/db'
+import { DateTime } from 'luxon'
 import User from '#models/user'
 import { chats, devices } from '#services/registry'
 
@@ -97,7 +98,7 @@ test.group('Çalışma alanı', (group) => {
     await row('org-4', 'chats', 'c1', { deviceId: 'dev-a' })
 
     const { items: list } = await chats(user.id, noPresence)
-    assert.equal(list[0].title, 'Başlıksız')
+    assert.equal(list[0].title, 'Untitled')
   })
 
   test('sohbetin cihazı açıksa işaretleniyor', async ({ assert }) => {
@@ -175,5 +176,44 @@ test.group('Canlılık bilinmiyorsa', (group) => {
     })
     const list = await devices(user.id, unreachable)
     assert.isTrue(list.livenessKnown)
+  })
+})
+
+/**
+ * Kabuk GERÇEKTEN uygulanmalı.
+ *
+ * Bu uygulamanın görünüm hataları iki kez tam olarak burada çıktı: bir kez
+ * düzen hiç uygulanmadı, bir kez varlık yolu yanlış kaldı. İkisi de 200
+ * döndürdü ve testlerden geçti, çünkü hiçbir iddia sayfanın ÇERÇEVESİNE
+ * bakmıyordu.
+ */
+test.group('Uygulama kabuğu', (group) => {
+  group.each.setup(() => testUtils.db().withGlobalTransaction())
+
+  async function hesap() {
+    return User.create({
+      email: `s${Date.now()}${Math.random()}@example.com`,
+      password: 'cok-uzun-bir-parola',
+      emailVerifiedAt: DateTime.now(),
+    })
+  }
+
+  test('panel sayfaları kenar çubuğuyla geliyor', async ({ client, assert }) => {
+    const user = await hesap()
+    for (const path of ['/app', '/app/tokens']) {
+      const response = await client.get(path).loginAs(user)
+      response.assertStatus(200)
+      const body = response.text()
+      assert.include(body, 'class="side"', `${path}: kenar çubuğu yok`)
+      assert.include(body, '/app/tokens', `${path}: kabuk bağlantıları yok`)
+      // İşlenmemiş bir bileşen tag'i düz metin olarak düşmemeli.
+      assert.notInclude(body, '@component(', `${path}: şablon işlenmemiş`)
+    }
+  })
+
+  test('sayfalar stil dosyasını çağırıyor', async ({ client, assert }) => {
+    // Yalnızca 200 bakmak yetmiyor: stil hiç yüklenmediğinde de sayfa 200.
+    const response = await client.get('/app').loginAs(await hesap())
+    assert.match(response.text(), /<link[^>]+rel="stylesheet"|\.css/)
   })
 })

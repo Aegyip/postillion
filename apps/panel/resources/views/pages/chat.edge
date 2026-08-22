@@ -1,21 +1,23 @@
-@component('components/layout', { title: (chat ? chat.title : 'Chat') + ' — Postillion', captchaScript: false })
-  <div class="card wide" data-chat-id="{{ chat ? chat.id : '' }}" data-head-seq="{{ headSeq }}">
-    <div class="head">
-      <h1>{{ chat ? chat.title : 'Chat' }}</h1>
-      <a class="quiet" href="/app">Workspace</a>
-    </div>
-
+@component('components/app_shell', { title: (chat ? chat.title : 'Chat') + ' — Postillion', devices, chats, livenessKnown, activeChatId: chat ? chat.id : null })
+  <header class="topbar">
+    <h1>{{ chat ? chat.title : 'Chat' }}</h1>
     @if (chat && chat.location)
-      <p class="sub">{{ chat.location }}</p>
+      <span class="meta">{{ chat.location }}</span>
     @end
+  </header>
 
+  <div class="scroll" data-chat-id="{{ chat ? chat.id : '' }}" data-head-seq="{{ headSeq }}">
     @if (unreachable)
       {{-- Ulaşılamamak ile boş olmak AYRI: ilki arıza. --}}
-      <ul class="errors">
-        <li>The server could not be reached, so the transcript is unavailable.</li>
-      </ul>
+      <div class="page">
+        <ul class="errors">
+          <li>The server could not be reached, so the transcript is unavailable.</li>
+        </ul>
+      </div>
     @elseif (!messages.length)
-      <p class="empty">No messages in this chat yet.</p>
+      <div class="page">
+        <p class="empty">No messages in this chat yet.</p>
+      </div>
     @else
       <ol class="transcript">
         @each (message in messages)
@@ -39,7 +41,9 @@
         @end
       </ol>
     @end
+  </div>
 
+  <div class="composer">
     @if (flashMessages.has('errorsBag'))
       <ul class="errors">
         @each (message in (flashMessages.get('errorsBag') ?? {}))
@@ -49,21 +53,31 @@
     @end
 
     @if (chat && chat.deviceOnline)
-      <form class="row send" method="POST" action="/app/chats/{{ chat.id }}/send">
+      <form method="POST" action="/app/chats/{{ chat.id }}/send">
         {{ csrfField() }}
-        <input type="text" name="prompt" placeholder="Write a message…" required
-               maxlength="20000" value="{{ flashMessages.get('prompt') ?? '' }}" />
-        <button class="btn narrow" type="submit">Send</button>
+        <input type="text" name="prompt" placeholder="Do anything…" required
+               maxlength="20000" autocomplete="off"
+               value="{{ flashMessages.get('prompt') ?? '' }}" />
+        <button class="btn send" type="submit" aria-label="Send">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 19V5M5 12l7-7 7 7" />
+          </svg>
+        </button>
       </form>
-    @end
-
-    @if (chat && livenessKnown && !chat.deviceOnline)
+    @elseif (chat && livenessKnown)
       {{-- Yazma kapalıysa SEBEBİ yazılı olmalı: kaybolmuş bir kutu soru
            bırakır. Okumak zaten çalışıyor. --}}
-      <p class="notice">
+      <p class="hint">
         This chat's device is off. You can read the history; writing needs the
         device to be running.
       </p>
+    @end
+  </div>
+
+  <div class="statusbar">
+    <span>{{ chat && chat.cwd ? chat.cwd : 'no checkout' }}</span>
+    @if (chat && chat.branch)
+      <span class="right">{{ chat.branch }}</span>
     @end
   </div>
 @end

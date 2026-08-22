@@ -1,6 +1,8 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import vine from '@vinejs/vine'
 import ApiToken from '#models/api_token'
+import { sidebar } from '#services/registry'
+import { presence } from '#services/sync_server'
 
 const createValidator = vine.compile(
   vine.object({
@@ -19,9 +21,13 @@ const createValidator = vine.compile(
 export default class TokensController {
   async index({ view, auth, session }: HttpContext) {
     const user = auth.getUserOrFail()
-    const tokens = await ApiToken.query().where('user_id', user.id).orderBy('created_at', 'desc')
+    const [tokens, shell] = await Promise.all([
+      ApiToken.query().where('user_id', user.id).orderBy('created_at', 'desc'),
+      sidebar(user.id, (org) => presence(org, user.id)),
+    ])
 
     return view.render('pages/tokens', {
+      ...shell,
       tokens,
       // Yeni üretilmiş jeton flash'ta taşınıyor: yenilendiğinde kaybolmalı,
       // sayfada kalıcı olarak durmamalı.

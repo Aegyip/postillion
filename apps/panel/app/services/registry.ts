@@ -118,32 +118,26 @@ export interface Workspace<T> {
   livenessKnown: boolean
 }
 
-export async function devices(
-  userId: number,
-  presence: PresenceFetcher
-): Promise<Workspace<Device>> {
-  const [rows, online] = await Promise.all([rowsOf(userId, 'devices'), onlineIds(userId, presence)])
-
-  const items = rows
-    .map((row) => ({
-      id: row.id,
-      // Adsız cihaz listede boş bir satır olarak görünmemeli.
-      name: str(row.fields, 'name') ?? row.id,
-      platform: str(row.fields, 'platform') ?? 'bilinmiyor',
-      lastSeenAt: ms(row.fields, 'lastSeenAt'),
-      online: online.ids.has(row.id),
-    }))
-    // Çevrimiçi olanlar üstte: panelin işi onlarla.
-    .sort(
-      (a, b) => Number(b.online) - Number(a.online) || (b.lastSeenAt ?? 0) - (a.lastSeenAt ?? 0)
-    )
-  return { items, livenessKnown: online.known }
+function toDevices(rows: Row[], online: Set<string>): Device[] {
+  return (
+    rows
+      .map((row) => ({
+        id: row.id,
+        // Adsız cihaz listede boş bir satır olarak görünmemeli.
+        name: str(row.fields, 'name') ?? row.id,
+        platform: str(row.fields, 'platform') ?? 'unknown',
+        lastSeenAt: ms(row.fields, 'lastSeenAt'),
+        online: online.has(row.id),
+      }))
+      // Çevrimiçi olanlar üstte: panelin işi onlarla.
+      .sort(
+        (a, b) => Number(b.online) - Number(a.online) || (b.lastSeenAt ?? 0) - (a.lastSeenAt ?? 0)
+      )
+  )
 }
 
-export async function chats(userId: number, presence: PresenceFetcher): Promise<Workspace<Chat>> {
-  const [rows, online] = await Promise.all([rowsOf(userId, 'chats'), onlineIds(userId, presence)])
-
-  const items = rows
+function toChats(rows: Row[], online: Set<string>): Chat[] {
+  return rows
     .filter((row) => row.fields.archived !== true)
     .map((row) => {
       const deviceId = str(row.fields, 'deviceId')
@@ -151,15 +145,48 @@ export async function chats(userId: number, presence: PresenceFetcher): Promise<
       const branch = str(row.fields, 'branch')
       return {
         id: row.id,
-        title: str(row.fields, 'title') ?? 'Başlıksız',
+        title: str(row.fields, 'title') ?? 'Untitled',
         deviceId,
         cwd,
         branch,
         location: [cwd, branch].filter(Boolean).join(' · '),
         lastMessageAt: ms(row.fields, 'lastMessageAt'),
-        deviceOnline: deviceId !== null && online.ids.has(deviceId),
+        deviceOnline: deviceId !== null && online.has(deviceId),
       }
     })
     .sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0))
-  return { items, livenessKnown: online.known }
+}
+
+export async function devices(
+  userId: number,
+  presence: PresenceFetcher
+): Promise<Workspace<Device>> {
+  const [rows, online] = await Promise.all([rowsOf(userId, 'devices'), onlineIds(userId, presence)])
+  return { items: toDevices(rows, online.ids), livenessKnown: online.known }
+}
+
+export async function chats(userId: number, presence: PresenceFetcher): Promise<Workspace<Chat>> {
+  const [rows, online] = await Promise.all([rowsOf(userId, 'chats'), onlineIds(userId, presence)])
+  return { items: toChats(rows, online.ids), livenessKnown: online.known }
+}
+
+/**
+ * Kenar çubuğunun ihtiyacı olan her şey, TEK canlılık okumasıyla.
+ *
+ * Kabuk her `/app` sayfasında duruyor, yani üç denetleyici de aynı ikiliyi
+ * istiyor. `devices()` ve `chats()` ayrı ayrı çağrılsaydı presence iki kez
+ * sorulurdu; ikisi farklı cevap verdiğinde kenar çubuğundaki nokta ile ana
+ * içerikteki durum birbirini tutmazdı.
+ */
+export async function sidebar(userId: number, presence: PresenceFetcher) {
+  const [deviceRows, chatRows, online] = await Promise.all([
+    rowsOf(userId, 'devices'),
+    rowsOf(userId, 'chats'),
+    onlineIds(userId, presence),
+  ])
+  return {
+    devices: toDevices(deviceRows, online.ids),
+    chats: toChats(chatRows, online.ids),
+    livenessKnown: online.known,
+  }
 }

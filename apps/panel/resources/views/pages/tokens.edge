@@ -1,48 +1,54 @@
-@component('components/layout', { title: 'Device tokens — Postillion', captchaScript: false })
-  <div class="card wide">
+@component('components/app_shell', { title: 'Device tokens — Postillion', devices, chats, livenessKnown, activeChatId: null })
+  <header class="topbar">
     <h1>Device tokens</h1>
-    <p class="sub">Every device connects to the server with its own token.</p>
+    <span class="meta">{{ tokens.length }} active</span>
+  </header>
 
-    @if (fresh)
-      <div class="fresh">
-        <p class="fresh-label">New token — <strong>shown this once only</strong></p>
-        <code>{{ fresh }}</code>
-        <p class="fresh-hint">
-          Copy it and enter it on the device under <em>Settings → Sync</em>.
-          It disappears when you reload; only its digest is stored.
-        </p>
-      </div>
-    @end
+  <div class="scroll">
+    <div class="page">
+      <p class="lede">Every device connects to the server with its own token.</p>
 
-    <form method="POST" action="/app/tokens" class="row">
-      {{ csrfField() }}
-      <input type="text" name="name" placeholder="Laptop" required maxlength="64" />
-      <button class="btn narrow" type="submit">Generate</button>
-    </form>
+      @if (fresh)
+        <div class="fresh">
+          <p class="fresh-label">New token — <strong>shown this once only</strong></p>
+          <code>{{ fresh }}</code>
+          <p class="fresh-hint">
+            Copy it and enter it on the device under <em>Settings → Sync</em>.
+            It disappears when you reload; only its digest is stored.
+          </p>
+        </div>
+      @end
 
-    @if (tokens.length)
-      <ul class="tokens">
-        @each (token in tokens)
-          <li>
-            <div>
-              <span class="name">{{ token.name }}</span>
-              <span class="meta">
-                @if (token.lastUsedAt)
-                  last used {{ token.lastUsedAt.toRelative() }}
-                @else
-                  never used
-                @end
+      <form method="POST" action="/app/tokens" class="inline-form">
+        {{ csrfField() }}
+        <input type="text" name="name" placeholder="Laptop" required maxlength="64" />
+        <button class="btn" type="submit">Generate</button>
+      </form>
+
+      @if (tokens.length)
+        <ul class="rows">
+          @each (token in tokens)
+            <li>
+              <span class="grow">
+                <span class="nm">{{ token.name }}</span>
+                <span class="sub">
+                  @if (token.lastUsedAt)
+                    last used {{ token.lastUsedAt.toRelative() }}
+                  @else
+                    never used
+                  @end
+                </span>
               </span>
-            </div>
-            <form method="POST" action="/app/tokens/{{ token.id }}?_method=DELETE">
-              {{ csrfField() }}
-              <button class="link-danger" type="submit">Revoke</button>
-            </form>
-          </li>
-        @end
-      </ul>
-    @else
-      <p class="empty">No tokens yet.</p>
-    @end
+              <form method="POST" action="/app/tokens/{{ token.id }}?_method=DELETE">
+                {{ csrfField() }}
+                <button class="link-danger" type="submit">Revoke</button>
+              </form>
+            </li>
+          @end
+        </ul>
+      @else
+        <p class="empty">No tokens yet.</p>
+      @end
+    </div>
   </div>
 @end

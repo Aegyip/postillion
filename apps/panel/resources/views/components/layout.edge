@@ -1,5 +1,5 @@
 {{--
-  Panelin ana düzeni.
+  Belgenin iskeleti.
 
   Bileşen + slot, `@layout`/`@section` DEĞİL: edge.js 6'da o tag'ler yok ve
   bilinmeyen bir tag sessizce METİN olarak çıktıya düşüyor — sayfa `<html>`
@@ -13,6 +13,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ title ?? 'Postillion' }}</title>
+    <link rel="icon" href="/assets/postillion-favicon-v3.png" type="image/png" sizes="128x128" />
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     @if (captchaScript)
       {{-- Turnstile yalnızca ihtiyacı olan sayfada yükleniyor. --}}
@@ -20,8 +21,6 @@
     @end
   </head>
   <body>
-    <main class="shell">
-      {{{ await $slots.main() }}}
-    </main>
+    {{{ await $slots.main() }}}
   </body>
 </html>

@@ -1,57 +1,59 @@
-@component('components/layout', { title: 'Postillion', captchaScript: false })
-  <div class="card wide">
-    <div class="head">
-      <h1>Workspace</h1>
-      <a class="quiet" href="/app/tokens">Device tokens</a>
+@component('components/app_shell', { title: 'Workspace — Postillion', devices, chats, livenessKnown, activeChatId: null })
+  <header class="topbar">
+    <h1>Workspace</h1>
+    <span class="meta">{{ devices.length }} devices · {{ chats.length }} chats</span>
+  </header>
+
+  <div class="scroll">
+    <div class="page">
+      @if (!devices.length && !chats.length)
+        <p class="empty">
+          No device has connected yet.
+          <a href="/app/tokens">Generate a token</a> and enter it on the device
+          under <em>Settings → Sync</em>.
+        </p>
+      @end
+
+      @if (devices.length)
+        <h2>Devices</h2>
+        <ul class="rows">
+          @each (device in devices)
+            <li>
+              <span class="grow">
+                <span class="nm">{{ device.name }}</span>
+                <span class="sub">{{ device.platform }}</span>
+              </span>
+              @if (!livenessKnown)
+                {{-- Sunucuya ulaşılamıyor: "çevrimdışı" demek yanlış olurdu. --}}
+                <span class="state"><span class="dot unknown"></span>status unknown</span>
+              @elseif (device.online)
+                <span class="state"><span class="dot online"></span>online</span>
+              @else
+                <span class="state"><span class="dot offline"></span>offline</span>
+              @end
+            </li>
+          @end
+        </ul>
+      @end
+
+      @if (chats.length)
+        <h2>Chats</h2>
+        <ul class="rows">
+          @each (chat in chats)
+            <li>
+              <a class="grow" href="/app/chats/{{ chat.id }}">
+                <span class="nm">{{ chat.title }}</span>
+                <span class="sub">{{ chat.location || '—' }}</span>
+              </a>
+              @if (livenessKnown && !chat.deviceOnline)
+                {{-- Geçmiş okunabilir, yazmak için cihaz gerekiyor. Sebebi
+                     yazılı olmalı: kaybolmuş bir buton soru bırakır. --}}
+                <span class="state"><span class="dot offline"></span>device is off</span>
+              @end
+            </li>
+          @end
+        </ul>
+      @end
     </div>
-
-    @if (!devices.length && !chats.length)
-      <p class="empty">
-        No device has connected yet.
-        <a href="/app/tokens">Generate a token</a> and enter it on the device
-        under <em>Settings → Sync</em>.
-      </p>
-    @end
-
-    @if (devices.length)
-      <h2>Devices</h2>
-      <ul class="tokens">
-        @each (device in devices)
-          <li>
-            <div>
-              <span class="name">{{ device.name }}</span>
-              <span class="meta">{{ device.platform }}</span>
-            </div>
-            @if (!livenessKnown)
-              {{-- Sunucuya ulaşılamıyor: "çevrimdışı" demek yanlış olurdu. --}}
-              <span class="dot unknown">status unknown</span>
-            @elseif (device.online)
-              <span class="dot online">online</span>
-            @else
-              <span class="dot offline">offline</span>
-            @end
-          </li>
-        @end
-      </ul>
-    @end
-
-    @if (chats.length)
-      <h2>Chats</h2>
-      <ul class="tokens">
-        @each (chat in chats)
-          <li>
-            <div>
-              <a class="name link" href="/app/chats/{{ chat.id }}">{{ chat.title }}</a>
-              <span class="meta">{{ chat.location }}</span>
-            </div>
-            @if (livenessKnown && !chat.deviceOnline)
-              {{-- Geçmiş okunabilir, yazmak için cihaz gerekiyor. Sebebi
-                   yazılı olmalı: kaybolmuş bir buton soru bırakır. --}}
-              <span class="dot offline">device is off</span>
-            @end
-          </li>
-        @end
-      </ul>
-    @end
   </div>
 @end

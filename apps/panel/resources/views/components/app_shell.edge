@@ -1,0 +1,71 @@
+{{--
+  Panelin uygulama kabuğu: solda cihaz ve sohbet listesi, sağda içerik.
+
+  Kenar çubuğu HER sayfada duruyor — sohbetler arasında geçmek için çalışma
+  alanına dönmeyi gerektirmek, masaüstü uygulamasının hiç yapmadığı bir şey.
+  Bedeli her istekte iki küçük sorgu; listeler zaten veritabanından geliyor.
+--}}
+@component('components/layout', { title })
+  <div class="app">
+    <aside class="side">
+      <a class="brand" href="/app">
+        <img src="/assets/postillion-app-icon.svg" alt="" width="26" height="26" />
+        Postillion
+      </a>
+
+      <div class="side-scroll">
+        <p class="side-head">Devices</p>
+        @if (devices.length)
+          <ul class="side-list">
+            @each (device in devices)
+              <li>
+                <span class="device">
+                  {{-- Durum yalnızca renkle anlatılmıyor; yazısı `title`
+                       değil, ekran okuyucunun göreceği metin. --}}
+                  <span class="dot {{ !livenessKnown ? 'unknown' : (device.online ? 'online' : 'offline') }}"></span>
+                  <span>
+                    <span class="nm">{{ device.name }}</span>
+                    <span class="sub">
+                      {{ device.platform }} ·
+                      {{ !livenessKnown ? 'status unknown' : (device.online ? 'online' : 'offline') }}
+                    </span>
+                  </span>
+                </span>
+              </li>
+            @end
+          </ul>
+        @else
+          <p class="side-empty">No devices yet.</p>
+        @end
+
+        <p class="side-head">Chats</p>
+        @if (chats.length)
+          <ul class="side-list">
+            @each (chat in chats)
+              <li class="{{ chat.id === activeChatId ? 'is-active' : '' }}">
+                <a href="/app/chats/{{ chat.id }}">
+                  <span class="nm">{{ chat.title }}</span>
+                  <span class="sub">{{ chat.location || '—' }}</span>
+                </a>
+              </li>
+            @end
+          </ul>
+        @else
+          <p class="side-empty">No chats yet.</p>
+        @end
+      </div>
+
+      <div class="side-foot">
+        <a href="/app/tokens">Device tokens</a>
+        <form method="POST" action="/logout">
+          {{ csrfField() }}
+          <button class="linkish" type="submit">Log out</button>
+        </form>
+      </div>
+    </aside>
+
+    <main class="main">
+      {{{ await $slots.main() }}}
+    </main>
+  </div>
+@end

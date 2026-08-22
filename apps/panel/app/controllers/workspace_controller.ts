@@ -1,5 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http'
-import { chats, devices } from '#services/registry'
+import { sidebar } from '#services/registry'
 import { presence } from '#services/sync_server'
 
 /**
@@ -12,17 +12,11 @@ import { presence } from '#services/sync_server'
 export default class WorkspaceController {
   async index({ view, auth }: HttpContext) {
     const user = auth.getUserOrFail()
+    // Kenar çubuğu ile ana içerik AYNI okumadan besleniyor; iki ayrı çağrı
+    // presence'ı iki kez sorar ve ikisi farklı cevap verirse ekranın iki
+    // yarısı birbirini tutmaz.
+    const shell = await sidebar(user.id, (org) => presence(org, user.id))
 
-    const ask = (org: string) => presence(org, user.id)
-    const [deviceList, chatList] = await Promise.all([devices(user.id, ask), chats(user.id, ask)])
-
-    return view.render('pages/workspace', {
-      devices: deviceList.items,
-      chats: chatList.items,
-      // Canlılık SORULABİLDİ mi — yapılandırma değil, isteğin kendisi.
-      // Yapılandırmaya bakmak, reddedilen ya da düşen bir çağrıdan sonra
-      // açık duran cihazları "çevrimdışı" göstermek demekti.
-      livenessKnown: deviceList.livenessKnown && chatList.livenessKnown,
-    })
+    return view.render('pages/workspace', { ...shell, activeChatId: null })
   }
 }
